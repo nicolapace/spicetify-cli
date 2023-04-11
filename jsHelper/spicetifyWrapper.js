@@ -112,7 +112,10 @@ const Spicetify = {
             "Config",
             "expFeatureOverride",
             "createInternalMap",
-            "RemoteConfigResolver"
+            "RemoteConfigResolver",
+            "Playbar",
+            "Tippy",
+            "_getStyledClassName"
         ];
 
         const PLAYER_METHOD = [
@@ -309,6 +312,43 @@ Spicetify.LocalStorage = {
     get: (key) => localStorage.getItem(key),
     remove: (key) => localStorage.removeItem(key),
     set: (key, value) => localStorage.setItem(key, value),
+};
+
+Spicetify._getStyledClassName = (args, component) => {
+    const includedKeys = ["role", "variant", "semanticColor", "iconColor", "color", "weight", "buttonSize", "iconSize", "position", "paddingBottom", "data-encore-id"];
+    const element = Array.from(args).find(
+		e => e?.children || e?.dangerouslySetInnerHTML || typeof e?.className !== "undefined" || includedKeys.some(key => typeof e?.[key] !== "undefined")
+	);
+
+    if (!element) return;
+
+    let className = /(?:\w+__)?(\w+)-[\w-]+/.exec(component.componentId)?.[1];
+
+    for (const key of includedKeys) {
+        if ((typeof element[key] === "string" && element[key].length) || typeof element[key] === "number") {
+            className += `-${element[key]}`;
+        }
+    }
+
+    const excludedKeys = ["children", "className", "style", "dir", "key", "ref", "as", ""];
+    const excludedPrefix = ["aria-"];
+
+
+    const childrenProps = ["iconLeading", "iconTrailing", "iconOnly"];
+
+    for (const key of childrenProps) {
+        if (element[key]) className += `-${key}`;
+    }
+
+    const booleanKeys = Object.keys(element).filter(key => typeof element[key] === "boolean" && element[key]);
+
+    for (const key of booleanKeys) {
+        if (excludedKeys.includes(key)) continue;
+        if (excludedPrefix.some(prefix => key.startsWith(prefix))) continue;
+        className += `-${key}`;
+    }
+
+    return className;
 };
 
 Spicetify.getFontStyle = (font) => {
@@ -718,19 +758,20 @@ Spicetify.Menu = (function() {
     }
 
     class Item {
-        constructor(name, isEnabled, onClick) {
+        constructor(name, isEnabled, onClick, icon = undefined) {
             this._name = name;
             this._isEnabled = isEnabled;
+            this._icon = icon;
             this.onClick = () => {onClick(this)};
             this._element = new _HTMLContextMenuItem({
                 name: name,
-                icon: isEnabled ? "check" : "",
+                icon: isEnabled ? "check" : icon ?? ""
             });
         }
 
         setState(isEnabled) {
             this._isEnabled = isEnabled;
-            this._element.update("icon", isEnabled ? "check" : "");
+            this._element.update("icon", isEnabled ? "check" : this._icon ?? "");
         }
         set isEnabled(bool) { this.setState(bool); }
         get isEnabled() { return this._isEnabled; }
@@ -741,6 +782,13 @@ Spicetify.Menu = (function() {
         }
         set name(text) { this.setName(text); }
         get name() { return this._name; }
+
+        setIcon(icon) {
+            this._icon = icon;
+            this._element.update("icon", icon);
+        }
+        set icon(icon) { this.setIcon(icon); }
+        get icon() { return this._icon; }
 
         register() {
             collection.add(this);
@@ -771,7 +819,7 @@ Spicetify.Menu = (function() {
             this._items.add(item);
         }
         removeItem(item) {
-            this._items.remove(item);
+            this._items.delete(item);
         }
 
         register() {
@@ -852,7 +900,7 @@ Spicetify.ContextMenu = (function () {
             this._items.add(item);
         }
         removeItem(item) {
-            this._items.remove(item);
+            this._items.delete(item);
         }
 
         set disabled(bool) {
@@ -873,7 +921,7 @@ Spicetify.ContextMenu = (function () {
             itemList.add(this);
         }
         deregister() {
-            itemList.remove(this);
+            itemList.delete(this);
         }
     }
 
@@ -972,101 +1020,143 @@ Spicetify.ContextMenu = (function () {
     return { Item, SubMenu, _addItems };
 })();
 
-Spicetify._cloneSidebarItem = function(list) {
-    function findChild(parent, key, value) {
-        if (!parent.props) return null;
-
-        if (value && parent.props[key]?.includes(value)) {
-            return parent;
-        } else if (!parent.props.children) {
+Spicetify._cloneSidebarItem = function (list, sidebarIsCollapsed) {
+	function findChild(parent, key, value) {
+		if (!parent.props) {
             return null;
-        }else if (Array.isArray(parent.props.children)) {
-            for (const child of parent.props.children) {
-                let ele = findChild(child, key, value);
-                if (ele) {
-                    return ele;
-                }
-            }
-        } else if (parent.props.children) {
-            return findChild(parent.props.children, key, value);
-        }
-        return null;
-    }
-
-    function conditionalAppend(baseClassname, conditionalClassname, location) {
-        if (Spicetify.Platform?.History?.location && Spicetify.Platform.History.location.pathname.startsWith(location)) {
-            baseClassname += " " + conditionalClassname;
         }
 
-        return baseClassname;
-    }
+		if (value && parent.props[key]?.includes(value)) {
+			return parent;
+		} else if (!parent.props.children) {
+			return null;
+		} else if (Array.isArray(parent.props.children)) {
+			for (const child of parent.props.children) {
+				let ele = findChild(child, key, value);
+				if (ele) {
+					return ele;
+				}
+			}
+		} else if (parent.props.children) {
+			return findChild(parent.props.children, key, value);
+		}
+		return null;
+	}
 
-    const React = Spicetify.React;
-    const reactObjs = [];
-    for (const app of list) {
-        let manifest;
-        try {
-            var request = new XMLHttpRequest();
-            request.open('GET', `spicetify-routes-${app}.json`, false);
-            request.send(null);
-            manifest = JSON.parse(request.responseText);
-        } catch {
-            manifest = {};
-        }
+	function conditionalAppend(baseClassname, activeClassname, location) {
+		if (Spicetify.Platform?.History?.location?.pathname.startsWith(location)) {
+			baseClassname += " " + activeClassname;
+		}
 
-        let appProper = manifest.name;
-        if (typeof appProper === "object") {
-            appProper = appProper[Spicetify.Locale.getLocale()] || appProper["en"];
-        }
-        if (!appProper) {
-            appProper = (app[0].toUpperCase() + app.slice(1));
-        }
-        const icon = manifest.icon || "";
-        const activeIcon = manifest["active-icon"] || icon;
+		return baseClassname;
+	}
 
-        const appLink = "/" + app;
-        const link = findChild(Spicetify._sidebarItemToClone, "className", "main-navBar-navBarLink");
-        const obj = React.cloneElement(
-            Spicetify._sidebarItemToClone,
-            null,
-            React.cloneElement(
-                link,
-                {
-                    to: appLink,
-                    isActive: (e, {pathname: t})=> t.startsWith(appLink),
-                    className: conditionalAppend("link-subtle main-navBar-navBarLink", "main-navBar-navBarLinkActive", appLink),
-                },
-                React.createElement(
-                    "div",
-                    {
-                        className: "icon collection-icon",
-                        dangerouslySetInnerHTML: {
-                            __html: icon,
-                        }
-                    },
-                ),
-                React.createElement(
-                    "div",
-                    {
-                        className: "icon collection-active-icon",
-                        dangerouslySetInnerHTML: {
-                            __html: activeIcon,
-                        }
-                    },
-                ),
-                React.createElement(
-                    "span",
-                    {
-                        className: "ellipsis-one-line main-type-mestoBold"
-                    },
-                    appProper,
-                ),
-            )
-        )
-        reactObjs.push(obj);
-    }
-    return reactObjs;
-}
+	const React = Spicetify.React;
+	const reactObjs = [];
+	for (const app of list) {
+		let manifest;
+		try {
+			var request = new XMLHttpRequest();
+			request.open("GET", `spicetify-routes-${app}.json`, false);
+			request.send(null);
+			manifest = JSON.parse(request.responseText);
+		} catch {
+			manifest = {};
+		}
+
+		let appProper = manifest.name;
+		if (typeof appProper === "object") {
+			appProper = appProper[Spicetify.Locale.getLocale()] || appProper["en"];
+		}
+		if (!appProper) {
+			appProper = app[0].toUpperCase() + app.slice(1);
+		}
+		const icon = manifest.icon || "";
+		const activeIcon = manifest["active-icon"] || icon;
+
+		const appLink = "/" + app;
+		let obj, link;
+
+		if (typeof sidebarIsCollapsed === "boolean") {
+			link = findChild(Spicetify._sidebarXItemToClone, "className", "main-yourLibraryX-navLink");
+			obj = React.cloneElement(
+				Spicetify._sidebarXItemToClone,
+				null,
+				React.cloneElement(
+					Spicetify._sidebarXItemToClone.props.children,
+					{
+						label: sidebarIsCollapsed ? appProper : ""
+					},
+					React.cloneElement(
+						link,
+						{
+							to: appLink,
+							isActive: (e, { pathname: t }) => t.startsWith(appLink),
+							className: conditionalAppend("link-subtle main-yourLibraryX-navLink", "main-yourLibraryX-navLinkActive", appLink)
+						},
+						React.createElement(Spicetify.ReactComponent.IconComponent, {
+							className: "home-icon",
+							iconSize: "24",
+							dangerouslySetInnerHTML: {
+								__html: icon
+							}
+						}),
+						React.createElement(Spicetify.ReactComponent.IconComponent, {
+							className: "home-active-icon",
+							iconSize: "24",
+							dangerouslySetInnerHTML: {
+								__html: activeIcon
+							}
+						}),
+						!sidebarIsCollapsed &&
+							React.createElement(
+								Spicetify.ReactComponent.TextComponent,
+								{
+									variant: "balladBold",
+								},
+								appProper
+							)
+					)
+				)
+			);
+		} else {
+			link = findChild(Spicetify._sidebarItemToClone, "className", "main-navBar-navBarLink");
+			obj = React.cloneElement(
+				Spicetify._sidebarItemToClone,
+				null,
+				React.cloneElement(
+					link,
+					{
+						to: appLink,
+						isActive: (e, { pathname: t }) => t.startsWith(appLink),
+						className: conditionalAppend("link-subtle main-navBar-navBarLink", "main-navBar-navBarLinkActive", appLink)
+					},
+					React.createElement("div", {
+						className: "icon collection-icon",
+						dangerouslySetInnerHTML: {
+							__html: icon
+						}
+					}),
+					React.createElement("div", {
+						className: "icon collection-active-icon",
+						dangerouslySetInnerHTML: {
+							__html: activeIcon
+						}
+					}),
+					React.createElement(
+						"span",
+						{
+							className: "ellipsis-one-line main-type-mestoBold"
+						},
+						appProper
+					)
+				)
+			);
+		}
+		reactObjs.push(obj);
+	}
+	return reactObjs;
+};
 
 class _HTMLGenericModal extends HTMLElement {
     constructor() {
@@ -1123,6 +1213,48 @@ Spicetify.PopupModal = new _HTMLGenericModal();
 
 Spicetify.ReactComponent = {};
 
+Object.defineProperty(Spicetify, "TippyProps", {
+    value: {
+        delay: [200, 0],
+        animation: true,
+        render(instance) {
+            const popper = document.createElement('div');
+            const box = document.createElement('div');
+
+            popper.id = "context-menu";
+            popper.appendChild(box);
+
+            box.className = "main-contextMenu-tippy"
+            box.textContent = instance.props.content;
+
+            function onUpdate(prevProps, nextProps) {
+              if (prevProps.content !== nextProps.content) {
+                if (nextProps.allowHTML) box.innerHTML = nextProps.content;
+                else box.textContent = nextProps.content;
+              }
+            }
+
+            return { popper, onUpdate }
+        },
+        onShow(instance) {
+            instance.popper.firstChild.classList.add("main-contextMenu-tippyEnter");
+        },
+        onMount(instance) {
+            requestAnimationFrame(() => {
+                instance.popper.firstChild.classList.remove("main-contextMenu-tippyEnter");
+                instance.popper.firstChild.classList.add("main-contextMenu-tippyEnterActive");
+            });
+        },
+        onHide(instance) {
+            requestAnimationFrame(() => {
+                instance.popper.firstChild.classList.remove("main-contextMenu-tippyEnterActive");
+                instance.unmount();
+            });
+        },
+    },
+    writable: false,
+});
+
 Spicetify.Topbar = (function() {
     let leftContainer;
     const buttonsStash = new Set();
@@ -1131,17 +1263,23 @@ Spicetify.Topbar = (function() {
         constructor(label, icon, onClick, disabled = false) {
             this.element = document.createElement("button");
             this.element.classList.add("main-topBar-button");
-            this.label = label;
             this.icon = icon;
             this.onClick = onClick;
             this.disabled = disabled;
+            this.tippy = Spicetify.Tippy?.(this.element, {
+                content: label,
+                placement: "bottom",
+                ...Spicetify.TippyProps,
+            });
+            this.label = label;
             buttonsStash.add(this.element);
             leftContainer?.append(...buttonsStash);
         }
         get label() { return this._label; }
         set label(text) {
             this._label = text;
-            this.element.setAttribute("title", text);
+            if (!this.tippy) this.element.setAttribute("title", text);
+            else this.tippy.setContent(text);
         }
         get icon() { return this._icon; }
         set icon(input) {
@@ -1199,8 +1337,94 @@ Spicetify.Topbar = (function() {
     return { Button };
 })();
 
+Spicetify.Playbar = (function() {
+    let rightContainer;
+    let sibling;
+    const buttonsStash = new Set();
+
+    class Button {
+        constructor(label, icon, onClick, disabled = false, active = false, registerOnCreate = true) {
+            this.element = document.createElement("button");
+            this.element.classList.add("main-genericButton-button");
+            this.element.style.display = "block";
+            this.icon = icon;
+            this.onClick = onClick;
+            this.disabled = disabled;
+            this.active = active;
+            Array.from(sibling?.classList ?? []).forEach((className) => {
+                if (!className.startsWith("main-genericButton")) {
+                    this.element.classList.add(className);
+                }
+            });
+            this.tippy = Spicetify.Tippy?.(this.element, {
+                content: label,
+                ...Spicetify.TippyProps,
+            });
+            this.label = label;
+            registerOnCreate && this.register();
+        }
+        get label() { return this._label; }
+        set label(text) {
+            this._label = text;
+            if (!this.tippy) this.element.setAttribute("title", text);
+            else this.tippy.setContent(text);
+        }
+        get icon() { return this._icon; }
+        set icon(input) {
+            if (input && Spicetify.SVGIcons[input]) {
+                input = `<svg height="16" width="16" viewBox="0 0 16 16" fill="currentColor" stroke="currentColor">${Spicetify.SVGIcons[input]}</svg>`;
+            }
+            this._icon = input;
+            this.element.innerHTML = input;
+        }
+        get onClick() { return this._onClick; }
+        set onClick(func) {
+            this._onClick = func;
+            this.element.onclick = () => this._onClick(this);
+        }
+        get disabled() { return this._disabled; }
+        set disabled(bool) {
+            this._disabled = bool;
+            this.element.disabled = bool;
+            this.element.classList.toggle("disabled", bool);
+        }
+        set active(bool) {
+            this._active = bool;
+            this.element.classList.toggle("main-genericButton-buttonActive", bool);
+        }
+        get active() { return this._active; }
+        register() {
+            buttonsStash.add(this.element);
+            rightContainer?.prepend(...buttonsStash);
+        }
+        deregister() {
+            buttonsStash.delete(this.element);
+            this.element.remove();
+        }
+    }
+
+    (function waitForPlaybarMounted() {
+        sibling = document.querySelector(".main-nowPlayingBar-right .main-genericButton-button");
+        rightContainer = document.querySelector(".main-nowPlayingBar-right > div");
+        if (!rightContainer) {
+            setTimeout(waitForPlaybarMounted, 300);
+            return;
+        }
+        Array.from(sibling?.classList ?? []).forEach((className) => {
+            if (!className.startsWith("main-genericButton")) {
+                buttonsStash.forEach((button) => {
+                    button.classList.add(className);
+                });
+            }
+        });
+        rightContainer.prepend(...buttonsStash);
+    })();
+
+    return { Button };
+})();
+
 (function waitForHistoryAPI() {
-    const main = document.querySelector(".main-view-container__scroll-node-child");
+    const main = document.querySelector(".main-view-container__scroll-node-child > main");
     if (!main || !Spicetify.Platform?.History) {
         setTimeout(waitForHistoryAPI, 300);
         return;
