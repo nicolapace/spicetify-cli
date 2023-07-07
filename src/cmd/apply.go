@@ -19,6 +19,14 @@ func Apply(spicetifyVersion string) {
 	checkStates()
 	InitSetting()
 
+	backupSpicetifyVersion := backupSection.Key("with").MustString("")
+	if spicetifyVersion != backupSpicetifyVersion {
+		utils.PrintInfo(`Preprocessed Spotify data is outdated. Please run "spicetify restore backup apply" to receive new features and bug fixes`)
+		if !ReadAnswer("Continue applying anyway? [y/N]: ", false, true) {
+			os.Exit(1)
+		}
+	}
+
 	// Copy raw assets to Spotify Apps folder if Spotify is never applied
 	// before.
 	// extractedStock is for preventing copy raw assets 2 times when
@@ -112,11 +120,6 @@ func Apply(spicetifyVersion string) {
 	}
 
 	utils.PrintSuccess("Spotify is spiced up!")
-
-	backupSpicetifyVersion := backupSection.Key("with").MustString("")
-	if spicetifyVersion != backupSpicetifyVersion {
-		utils.PrintInfo(`Preprocessed Spotify data is outdated. Please run "spicetify restore backup apply" to receive new features and bug fixes`)
-	}
 }
 
 // UpdateTheme updates user.css + theme.js and overwrites custom assets
@@ -126,7 +129,7 @@ func UpdateTheme() {
 
 	if len(themeFolder) == 0 {
 		utils.PrintWarning(`Nothing is updated: Config "current_theme" is blank.`)
-		os.Exit(1)
+		return
 	}
 
 	updateCSS()
@@ -340,6 +343,41 @@ func pushApps(list ...string) {
 					continue
 				}
 				pushExtensions(app, subfilePath)
+			}
+			for _, assetExpr := range manifestJson.Assets {
+				assetsList, err := filepath.Glob(filepath.Join(customAppPath, assetExpr))
+				if err != nil {
+					utils.PrintError(err.Error())
+					continue
+				}
+				if len(assetsList) == 0 {
+					message := fmt.Sprintf("Custom App '%s': no assets found for expression \"%s\"", app, assetExpr)
+					utils.PrintWarning(message)
+					continue
+				}
+				for _, assetPath := range assetsList {
+					assetName, err := filepath.Rel(customAppPath, assetPath)
+					if err != nil {
+						utils.PrintError(err.Error())
+						continue
+					}
+					stat, err := os.Stat(assetPath)
+					if err != nil {
+						utils.PrintError(err.Error())
+						continue
+					}
+					if stat.IsDir() {
+						dest := filepath.Join(appDestPath, "xpui", "assets", app, assetName)
+						err = utils.Copy(assetPath, dest, true, []string{})
+					} else {
+						dest := filepath.Join(appDestPath, "xpui", "assets", app, filepath.Dir(assetName))
+						err = utils.CopyFile(assetPath, dest)
+					}
+					if err != nil {
+						utils.PrintError(err.Error())
+						continue
+					}
+				}
 			}
 		}
 

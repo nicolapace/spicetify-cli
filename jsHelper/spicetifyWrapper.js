@@ -1,3 +1,4 @@
+
 const Spicetify = {
     get CosmosAsync() {return Spicetify.Player.origin?._cosmos},
     get Queue() {return Spicetify.Player.origin?._queue?._state ?? Spicetify.Player.origin?._queue?._queue},
@@ -102,7 +103,8 @@ const Spicetify = {
             "ReactComponent",
             "PopupModal",
             "_cloneSidebarItem",
-            "_sidebarItemToClone",
+            // Deprecated since Spotify 1.2.14
+            // "_sidebarItemToClone",
             "SVGIcons",
             "colorExtractor",
             "test",
@@ -115,7 +117,16 @@ const Spicetify = {
             "RemoteConfigResolver",
             "Playbar",
             "Tippy",
-            "_getStyledClassName"
+            "_getStyledClassName",
+            "GraphQL",
+            "ReactHook",
+            "_sidebarXItemToClone",
+            "AppTitle",
+            "_reservedPanelIds",
+            "Panel",
+            "ReactFlipToolkit",
+            "classnames",
+            "ReactQuery",
         ];
 
         const PLAYER_METHOD = [
@@ -167,7 +178,17 @@ const Spicetify = {
             "PlaylistMenu",
             "TooltipWrapper",
             "TextComponent",
-            "IconComponent"
+            "IconComponent",
+            "ConfirmDialog",
+            "PanelContent",
+            "PanelSkeleton",
+            "PanelHeader"
+        ]
+
+        const REACT_HOOK = [
+            "DragHandler",
+            "usePanelState",
+            "useExtractedColor",
         ]
 
         let count = SPICETIFY_METHOD.length;
@@ -197,6 +218,15 @@ const Spicetify = {
         })
         console.log(`${count}/${REACT_COMPONENT.length} Spicetify.ReactComponent methods and objects are OK.`)
 
+        count = REACT_HOOK.length;
+        REACT_HOOK.forEach((method) => {
+            if (Spicetify.ReactHook[method] === undefined || Spicetify.ReactHook[method] === null) {
+                console.error(`Spicetify.ReactHook.${method} is not available. Please open an issue in the Spicetify repository to inform us about it.`)
+                count--;
+            }
+        })
+        console.log(`${count}/${REACT_HOOK.length} Spicetify.ReactHook methods and objects are OK.`)
+
         Object.keys(Spicetify).forEach(key => {
             if(!SPICETIFY_METHOD.includes(key)) {
                 console.log(`Spicetify method ${key} exists but is not in the method list. Consider adding it.`)
@@ -214,8 +244,133 @@ const Spicetify = {
                 console.log(`Spicetify.ReactComponent method ${key} exists but is not in the method list. Consider adding it.`)
             }
         })
-    }
+
+        Object.keys(Spicetify.ReactHook).forEach(key => {
+            if(!REACT_HOOK.includes(key)) {
+                console.log(`Spicetify.ReactHook method ${key} exists but is not in the method list. Consider adding it.`)
+            }
+        })
+    },
+    GraphQL: {
+        get Request() {
+            return Spicetify.Platform?.GraphQLLoader || Spicetify.GraphQL.Handler?.(Spicetify.GraphQL.Context);
+        },
+        Definitions: {},
+        get QueryDefinitions() {
+            return Object.fromEntries(Object.entries(Spicetify.GraphQL.Definitions).filter(([, value]) => value.definitions.some(def => def.kind === "OperationDefinition" && def.operation === "query")));
+        },
+        get MutationDefinitions() {
+            return Object.fromEntries(Object.entries(Spicetify.GraphQL.Definitions).filter(([, value]) => value.definitions.some(def => def.kind === "OperationDefinition" && def.operation === "mutation")));
+        },
+        get ResponseDefinitions() {
+            return Object.fromEntries(Object.entries(Spicetify.GraphQL.Definitions).filter(([, value]) => value.definitions.every(def => def.kind !== "OperationDefinition")));
+        },
+    },
+    ReactComponent: {},
+    ReactHook: {},
+    ReactFlipToolkit: {},
 };
+
+(function hotloadWebpackModules() {
+    if (!window?.webpackChunkopen) {
+        setTimeout(hotloadWebpackModules, 50);
+        return;
+    }
+    // Force all webpack modules to load
+    const require = webpackChunkopen.push([[Symbol()], {}, re => re]);
+    const modules = Object.keys(require.m).map(id => require(id));
+    const functionModules = modules.filter(module => typeof module === "object").map(module => {
+        try {
+            return Object.values(module);
+        } catch {}
+    }).flat().filter(module => typeof module === "function");
+
+    // classnames
+    // https://github.com/JedWatson/classnames/
+    Spicetify.classnames = modules.filter(module => typeof module === "function").find(module => module.toString().includes('"string"') && module.toString().includes("[native code]"));
+
+    // React Query v3
+    // https://github.com/TanStack/query/tree/v3
+    Spicetify.ReactQuery = modules.find(module => module.useQuery);
+
+    // React Hook - Drag Handler
+    Spicetify.ReactHook.DragHandler = functionModules.find(m => m.toString().includes("data-dragging-uri"));
+
+    // React Hook - usePanelState
+    Spicetify.ReactHook.usePanelState = functionModules.find(m => m.toString().includes("setPanelState"));
+    
+    // React Hook - useExtractedColor
+    Spicetify.ReactHook.useExtractedColor = functionModules.find(m => m.toString().includes("extracted-color"));
+
+    (function waitForURI() {
+        if (!Spicetify.URI) {
+            setTimeout(waitForURI, 10);
+            return;
+        }
+
+        // Ignore on versions older than 1.2.4
+        if (Spicetify.URI.Type) return;
+
+        const URIChunk = modules.filter(module => typeof module === "object").find(m => {
+            // Avoid creating 2 arrays of the same values
+            try {
+                const values = Object.values(m);
+                return values.some(m => typeof m === "function") && values.some(m => m?.AD);
+            } catch {
+                return false;
+            }
+        });
+        const URIModules = Object.values(URIChunk);
+
+        // URI.Type
+        Spicetify.URI.Type = URIModules.find(m => m?.AD);
+
+        // Parse functions
+        Spicetify.URI.from = URIModules.find(m => typeof m === "function" && m.toString().includes("allowedTypes"));
+        Spicetify.URI.fromString = URIModules.find(m => typeof m === "function" && m.toString().includes("Argument `uri`"));
+
+        // createURI functions
+        const createURIFunctions = URIModules.filter(m => typeof m === "function" && m.toString().match(/\([\w$]+\./));
+        for (const type of Object.keys(Spicetify.URI.Type)) {
+            const func = createURIFunctions.find(m => m.toString().match(new RegExp(`\\([\\w$]+\\.${type}\(?!_\)`)));
+            if (!func) continue;
+
+            const camelCaseType = type.toLowerCase().split("_").map((word, index) => {
+                if (index === 0) return word;
+                return word[0].toUpperCase() + word.slice(1);
+            }).join("");
+            Spicetify.URI[`${camelCaseType}URI`] = func;
+        }
+
+        // isURI functions
+        const isURIFUnctions = URIModules.filter(m => typeof m === "function" && m.toString().match(/=[\w$]+\./));
+        for (const type of Object.keys(Spicetify.URI.Type)) {
+            const func = isURIFUnctions.find(m => m.toString().match(new RegExp(`===[\\w$]+\\.${type}\(?!_\)\\}`)));
+            const camelCaseType = type.toLowerCase().split("_").map(word => word[0].toUpperCase() + word.slice(1)).join("");
+            
+            // Fill in missing functions, only serves as placebo as they cannot be as accurate as the original functions
+            Spicetify.URI[`is${camelCaseType}`] = func ?? ((uri) => {
+                let uriObj;
+                try {
+                    uriObj = Spicetify.URI.from?.(uri) ?? Spicetify.URI.fromString?.(uri);
+                } catch {
+                    return false;
+                }
+                if (!uriObj) return false;
+                return uriObj.type === Spicetify.URI.Type[type];
+            })
+        }
+
+        Spicetify.URI.isPlaylistV1OrV2 = (uri) => Spicetify.URI.isPlaylist(uri) || Spicetify.URI.isPlaylistV2(uri);
+
+        // Conversion functions
+        Spicetify.URI.idToHex = URIModules.find(m => typeof m === "function" && m.toString().includes("22==="));
+        Spicetify.URI.hexToId = URIModules.find(m => typeof m === "function" && m.toString().includes("32==="));
+
+        // isSameIdentity
+        Spicetify.URI.isSameIdentity = URIModules.find(m => typeof m === "function" && m.toString().match(/[\w$]+\.id===[\w$]+\.id/));
+    })();
+})();
 
 // Wait for Spicetify.Player.origin._state before adding following APIs
 (function waitOrigins() {
@@ -267,32 +422,6 @@ Spicetify.getAudioData = async (uri) => {
     return await Spicetify.CosmosAsync.get(`wg://audio-attributes/v1/audio-analysis/${uriObj.getBase62Id?.() ?? uriObj.id}?format=json`);
 }
 
-if (!Spicetify.URI) Spicetify.URI = {};
-(function appendValidationFunc() {
-    if (!Spicetify.URI.Type) {
-        setTimeout(appendValidationFunc, 10);
-        return;
-    }
-    if (Spicetify.URI.isTrack) return;
-    for (const type in Spicetify.URI.Type) {
-        const funcName = type
-            .toLowerCase()
-            .split("_")
-            .map((word) => word[0].toUpperCase() + word.slice(1))
-            .join("");
-        Spicetify.URI[`is${funcName}`] = (uri) => {
-            const uriObj = Spicetify.URI.from?.(uri) ?? Spicetify.URI.fromString?.(uri);
-            if (!uriObj) return false;
-            return uriObj.type === Spicetify.URI.Type[type];
-        };
-    }
-    Spicetify.URI.isPlaylistV1OrV2 = (uri) => {
-        return Spicetify.URI.isPlaylist(uri) || Spicetify.URI.isPlaylistV2(uri);
-    };
-})();
-
-
-
 Spicetify.colorExtractor = async (uri) => {
     const body = await Spicetify.CosmosAsync.get(`wg://colorextractor/v1/extract-presets?uri=${uri}&format=json`);
 
@@ -315,9 +444,11 @@ Spicetify.LocalStorage = {
 };
 
 Spicetify._getStyledClassName = (args, component) => {
-    const includedKeys = ["role", "variant", "semanticColor", "iconColor", "color", "weight", "buttonSize", "iconSize", "position", "paddingBottom", "data-encore-id"];
+    const includedKeys = ["role", "variant", "semanticColor", "iconColor", "color", "weight", "buttonSize", "iconSize", "position", "data-encore-id"];
+    const customKeys = ["padding", "blocksize"];
+
     const element = Array.from(args).find(
-		e => e?.children || e?.dangerouslySetInnerHTML || typeof e?.className !== "undefined" || includedKeys.some(key => typeof e?.[key] !== "undefined")
+		e => e?.children || e?.dangerouslySetInnerHTML || typeof e?.className !== "undefined" || includedKeys.some(key => typeof e?.[key] !== "undefined") || customKeys.some(key => Object.keys(e).some(k => k.toLowerCase().includes(key)))
 	);
 
     if (!element) return;
@@ -333,7 +464,6 @@ Spicetify._getStyledClassName = (args, component) => {
     const excludedKeys = ["children", "className", "style", "dir", "key", "ref", "as", ""];
     const excludedPrefix = ["aria-"];
 
-
     const childrenProps = ["iconLeading", "iconTrailing", "iconOnly"];
 
     for (const key of childrenProps) {
@@ -346,6 +476,12 @@ Spicetify._getStyledClassName = (args, component) => {
         if (excludedKeys.includes(key)) continue;
         if (excludedPrefix.some(prefix => key.startsWith(prefix))) continue;
         className += `-${key}`;
+    }
+
+    const customEntries = Object.entries(element).filter(([key, value]) => customKeys.some(k => key.toLowerCase().includes(k)) && typeof value === "string" && value.length);
+
+    for (const [key, value] of customEntries) {
+        className += `-${key}_${value.replace(/[^a-z0-9]/gi, "_")}`;
     }
 
     return className;
@@ -608,6 +744,41 @@ Spicetify.SVGIcons = {
     "watch": "<path d=\"M4.347 1.122l-.403 1.899A2.25 2.25 0 002 5.25v5.5a2.25 2.25 0 001.944 2.23l.403 1.898c.14.654.717 1.122 1.386 1.122h4.535c.668 0 1.246-.468 1.385-1.122l.404-1.899A2.25 2.25 0 0014 10.75v-5.5a2.25 2.25 0 00-1.943-2.23l-.404-1.898A1.417 1.417 0 0010.267 0H5.734c-.67 0-1.247.468-1.386 1.122zM5.8 1.5h4.4l.319 1.5H5.48l.32-1.5zM10.52 13l-.319 1.5H5.8L5.481 13h5.038zM4.25 4.5h7.5a.75.75 0 01.75.75v5.5a.75.75 0 01-.75.75h-7.5a.75.75 0 01-.75-.75v-5.5a.75.75 0 01.75-.75z\"/>",
     "x": "<path d=\"M14.354 2.353l-.708-.707L8 7.293 2.353 1.646l-.707.707L7.293 8l-5.647 5.646.707.708L8 8.707l5.646 5.647.708-.708L8.707 8z\"/>"
 };
+
+(async function waitUserAPI() {
+    if (!Spicetify.Platform?.UserAPI?._product_state) {
+        setTimeout(waitUserAPI, 1000);
+        return;
+    }
+
+    let subRequest;
+
+    Spicetify.AppTitle = {
+        set: async (name) => {
+            if (subRequest) subRequest.cancel();
+            await Spicetify.Platform.UserAPI._product_state.putOverridesValues({ pairs: {name} });
+            subRequest = Spicetify.Platform.UserAPI._product_state.subValues({ keys: ["name"] }, ({ pairs }) => {
+                if (pairs.name !== name) {
+                    Spicetify.Platform.UserAPI._product_state.putOverridesValues({ pairs: { name }}); // Restore name
+                }
+            });
+            return subRequest;
+        },
+        get: async () => {
+            const value = await Spicetify.Platform.UserAPI._product_state.getValues();
+            return value.pairs.name;
+        },
+        reset: async () => {
+            if (subRequest) subRequest.cancel();
+            await Spicetify.Platform.UserAPI._product_state.delOverridesValues({ keys: ["name"] })
+        },
+        sub: (callback) => {
+            return Spicetify.Platform.UserAPI._product_state.subValues({ keys: ["name"] }, ({ pairs }) => {
+                callback(pairs.name);
+            });
+        }
+    }
+})();
 
 (function appendAllFontStyle() {
     if (!Spicetify._fontStyle) {
@@ -1020,7 +1191,7 @@ Spicetify.ContextMenu = (function () {
     return { Item, SubMenu, _addItems };
 })();
 
-Spicetify._cloneSidebarItem = function (list, sidebarIsCollapsed) {
+Spicetify._cloneSidebarItem = function (list, isLibX = false) {
 	function findChild(parent, key, value) {
 		if (!parent.props) {
             return null;
@@ -1053,6 +1224,8 @@ Spicetify._cloneSidebarItem = function (list, sidebarIsCollapsed) {
 
 	const React = Spicetify.React;
 	const reactObjs = [];
+	const sidebarIsCollapsed = Spicetify.Platform?.LocalStorageAPI?.getItem?.("ylx-sidebar-state") === 1;
+
 	for (const app of list) {
 		let manifest;
 		try {
@@ -1077,7 +1250,7 @@ Spicetify._cloneSidebarItem = function (list, sidebarIsCollapsed) {
 		const appLink = "/" + app;
 		let obj, link;
 
-		if (typeof sidebarIsCollapsed === "boolean") {
+		if (isLibX) {
 			link = findChild(Spicetify._sidebarXItemToClone, "className", "main-yourLibraryX-navLink");
 			obj = React.cloneElement(
 				Spicetify._sidebarXItemToClone,
@@ -1211,8 +1384,6 @@ class _HTMLGenericModal extends HTMLElement {
 customElements.define("generic-modal", _HTMLGenericModal);
 Spicetify.PopupModal = new _HTMLGenericModal();
 
-Spicetify.ReactComponent = {};
-
 Object.defineProperty(Spicetify, "TippyProps", {
     value: {
         delay: [200, 0],
@@ -1225,7 +1396,7 @@ Object.defineProperty(Spicetify, "TippyProps", {
             popper.appendChild(box);
 
             box.className = "main-contextMenu-tippy"
-            box.textContent = instance.props.content;
+            box[instance.props.allowHTML ? "innerHTML" : "textContent"] = instance.props.content;
 
             function onUpdate(prevProps, nextProps) {
               if (prevProps.content !== nextProps.content) {
@@ -1257,23 +1428,31 @@ Object.defineProperty(Spicetify, "TippyProps", {
 
 Spicetify.Topbar = (function() {
     let leftContainer;
-    const buttonsStash = new Set();
+    let rightContainer;
+    const leftButtonsStash = new Set();
+    const rightButtonsStash = new Set();
 
     class Button {
-        constructor(label, icon, onClick, disabled = false) {
+        constructor(label, icon, onClick, disabled = false, isRight = false) {
             this.element = document.createElement("button");
-            this.element.classList.add("main-topBar-button");
             this.icon = icon;
             this.onClick = onClick;
             this.disabled = disabled;
             this.tippy = Spicetify.Tippy?.(this.element, {
                 content: label,
-                placement: "bottom",
                 ...Spicetify.TippyProps,
             });
             this.label = label;
-            buttonsStash.add(this.element);
-            leftContainer?.append(...buttonsStash);
+
+            if (isRight) {
+                this.element.classList.add('encore-over-media-set', 'main-topBar-buddyFeed');
+                rightButtonsStash.add(this.element);
+                rightContainer?.after(this.element);
+            } else {
+                this.element.classList.add('main-topBar-button');
+                leftButtonsStash.add(this.element);
+                leftContainer?.append(this.element)
+            }
         }
         get label() { return this._label; }
         set label(text) {
@@ -1298,21 +1477,19 @@ Spicetify.Topbar = (function() {
         set disabled(bool) {
             this._disabled = bool;
             this.element.disabled = bool;
-            if (bool) {
-                this.element.classList.add("disabled");
-            } else {
-                this.element.classList.remove("disabled");
-            }
+            this.element.classList.toggle("disabled", bool);
         }
     }
 
     function waitForTopbarMounted() {
         leftContainer = document.querySelector(".main-topBar-historyButtons");
-        if (!leftContainer) {
+        rightContainer = document.querySelector(".main-noConnection");
+        if (!leftContainer || !rightContainer) {
             setTimeout(waitForTopbarMounted, 300);
             return;
         }
-        leftContainer.append(...buttonsStash);
+        leftContainer.append(...leftButtonsStash);
+        rightContainer.after(...rightButtonsStash);
     };
 
     waitForTopbarMounted();
@@ -1327,6 +1504,7 @@ Spicetify.Topbar = (function() {
             mutations.forEach((mutation) => {
                 if (mutation.removedNodes.length > 0) {
                     leftContainer = null;
+                    rightContainer = null;
                     waitForTopbarMounted();
                 }
             });
@@ -1343,7 +1521,7 @@ Spicetify.Playbar = (function() {
     const buttonsStash = new Set();
 
     class Button {
-        constructor(label, icon, onClick, disabled = false, active = false, registerOnCreate = true) {
+        constructor(label, icon, onClick = () => {}, disabled = false, active = false, registerOnCreate = true) {
             this.element = document.createElement("button");
             this.element.classList.add("main-genericButton-button");
             this.element.style.display = "block";
@@ -1351,11 +1529,7 @@ Spicetify.Playbar = (function() {
             this.onClick = onClick;
             this.disabled = disabled;
             this.active = active;
-            Array.from(sibling?.classList ?? []).forEach((className) => {
-                if (!className.startsWith("main-genericButton")) {
-                    this.element.classList.add(className);
-                }
-            });
+            addClassname(this.element);
             this.tippy = Spicetify.Tippy?.(this.element, {
                 content: label,
                 ...Spicetify.TippyProps,
@@ -1395,7 +1569,7 @@ Spicetify.Playbar = (function() {
         get active() { return this._active; }
         register() {
             buttonsStash.add(this.element);
-            rightContainer?.prepend(...buttonsStash);
+            rightContainer?.prepend(this.element);
         }
         deregister() {
             buttonsStash.delete(this.element);
@@ -1404,23 +1578,262 @@ Spicetify.Playbar = (function() {
     }
 
     (function waitForPlaybarMounted() {
-        sibling = document.querySelector(".main-nowPlayingBar-right .main-genericButton-button");
         rightContainer = document.querySelector(".main-nowPlayingBar-right > div");
         if (!rightContainer) {
             setTimeout(waitForPlaybarMounted, 300);
             return;
         }
-        Array.from(sibling?.classList ?? []).forEach((className) => {
-            if (!className.startsWith("main-genericButton")) {
-                buttonsStash.forEach((button) => {
-                    button.classList.add(className);
-                });
-            }
-        });
+        buttonsStash.forEach((button) => addClassname(button));
         rightContainer.prepend(...buttonsStash);
     })();
 
-    return { Button };
+    function addClassname(element) {
+        sibling = document.querySelector(".main-nowPlayingBar-right .main-genericButton-button");
+        if (!sibling) {
+            setTimeout(addClassname, 300, element);
+            return;
+        }
+        Array.from(sibling.classList).forEach((className) => {
+            if (!className.startsWith("main-genericButton")) element.classList.add(className);
+        });
+    }
+
+    const widgetStash = new Set();
+    let nowPlayingWidget;
+
+    class Widget {
+        constructor(label, icon, onClick = () => {}, disabled = false, active = false, registerOnCreate = true) {
+            this.element = document.createElement("button");
+            this.element.className = "main-addButton-button control-button control-button-heart";
+            this.icon = icon;
+            this.onClick = onClick;
+            this.disabled = disabled;
+            this.active = active;
+            this.tippy = Spicetify.Tippy?.(this.element, {
+                content: label,
+                ...Spicetify.TippyProps,
+            });
+            this.label = label;
+            registerOnCreate && this.register();
+        }
+        get label() { return this._label; }
+        set label(text) {
+            this._label = text;
+            if (!this.tippy) this.element.setAttribute("title", text);
+            else this.tippy.setContent(text);
+        }
+        get icon() { return this._icon; }
+        set icon(input) {
+            if (input && Spicetify.SVGIcons[input]) {
+                input = `<svg height="16" width="16" viewBox="0 0 16 16" fill="currentColor">${Spicetify.SVGIcons[input]}</svg>`;
+            }
+            this._icon = input;
+            this.element.innerHTML = input;
+        }
+        get onClick() { return this._onClick; }
+        set onClick(func) {
+            this._onClick = func;
+            this.element.onclick = () => this._onClick(this);
+        }
+        get disabled() { return this._disabled; }
+        set disabled(bool) {
+            this._disabled = bool;
+            this.element.disabled = bool;
+            this.element.classList.toggle("main-addButton-disabled", bool);
+            this.element.ariaDisabled = bool;
+        }
+        set active(bool) {
+            this._active = bool;
+            this.element.classList.toggle("main-addButton-active", bool);
+            this.element.ariaChecked = bool;
+        }
+        get active() { return this._active; }
+        register() {
+            widgetStash.add(this.element);
+            nowPlayingWidget?.append(this.element);
+        }
+        deregister() {
+            widgetStash.delete(this.element);
+            this.element.remove();
+        }
+    }
+
+    function waitForWidgetMounted() {
+        nowPlayingWidget = document.querySelector(".main-nowPlayingWidget-nowPlaying");
+        if (!nowPlayingWidget) {
+            setTimeout(waitForWidgetMounted, 300);
+            return;
+        }
+        nowPlayingWidget.append(...widgetStash);
+    };
+
+    (function attachObserver() {
+        const leftPlayer = document.querySelector(".main-nowPlayingBar-left");
+        if (!leftPlayer) {
+            setTimeout(attachObserver, 300);
+            return;
+        }
+        waitForWidgetMounted();
+        const observer = new MutationObserver((mutations) => {
+            mutations.forEach((mutation) => {
+                if (mutation.removedNodes.length > 0) {
+                    nowPlayingWidget = null;
+                    waitForWidgetMounted();
+                }
+            });
+        });
+        observer.observe(leftPlayer, {childList: true});
+    })();
+
+    return { Button, Widget };
+})();
+
+(function waitForPanelAPI() {
+    if (!Spicetify.Platform?.PanelAPI || !Spicetify.React || !Spicetify._reservedPanelIds) {
+        setTimeout(waitForPanelAPI, 300);
+        return;
+    }
+
+    // Workaround for older versions
+    let currentPanelId = 0, fallback = false;
+    if (!Spicetify.Platform.PanelAPI.getLastCachedPanelState) {
+        fallback = true;
+        Spicetify.Platform.PanelAPI.subscribeToPanelState((panelId) => {
+            currentPanelId = panelId
+        });
+    }
+
+    const contentMap = new Map(
+        Object.entries(Spicetify._reservedPanelIds).map(([key, value]) => !isNaN(parseInt(key)) && [parseInt(key), value]).filter(Boolean)
+    )
+
+    // https://react.dev/reference/react/Component#catching-rendering-errors-with-an-error-boundary
+    class ErrorBoundary extends Spicetify.React.Component {
+        constructor(props) {
+          super(props);
+          this.state = { hasError: false };
+        }
+
+        static getDerivedStateFromError(error) {
+          // Update state so the next render will show the fallback UI.
+          return { hasError: true };
+        }
+
+        componentDidCatch(error, info) {
+          Spicetify.showNotification(`Something went wrong in panel ID "${this.props.id}", check Console for error log`, true);
+          console.error(error);
+          console.error(`Error stack in panel ID "${this.props.id}": ${info.componentStack}`);
+          Spicetify.Panel.setPanel(Spicetify.Panel.reservedPanelIds.Disabled);
+        }
+
+        render() {
+          if (this.state.hasError) {
+            // `false` not `null`, so it won’t render beyond the null coalescing operator.
+            return false;
+          }
+
+          // Pass the `panel` prop with the current panel ID to the children
+          return Spicetify.React.cloneElement(this.props.children, { panel: this.props.id });
+        }
+    }
+
+    Spicetify.Panel = {
+        reservedPanelIds: Spicetify._reservedPanelIds,
+        Components: {
+            PanelSkeleton: Spicetify.ReactComponent.PanelSkeleton,
+            PanelContent: Spicetify.ReactComponent.PanelContent,
+            PanelHeader: Spicetify.ReactComponent.PanelHeader,
+        },
+        hasPanel: (id) => contentMap.has(id),
+        getPanel: (id) => contentMap.get(id),
+        render: () => {
+            const { currentPanel } = Spicetify.Panel;
+            return !Spicetify.Panel.reservedPanelIds[currentPanel] && contentMap.get(Spicetify.Panel.currentPanel) || null;
+        },
+        get currentPanel() {
+            return fallback ? currentPanelId : Spicetify.Platform.PanelAPI.getLastCachedPanelState();
+        },
+        setPanel: async (id) => {
+            currentPanelId = id;
+            await Spicetify.Platform.PanelAPI.setPanelState(id)
+        },
+        subPanelState: (callback) => Spicetify.Platform.PanelAPI.subscribeToPanelState(callback),
+        registerPanel: ({ label, children, isCustom = false, style, wrapperClassname, headerClassname, headerVariant, headerSemanticColor, headerLink, headerActions, headerOnClose, headerPreventDefaultClose, headerOnBack }) => {
+            const id = [...contentMap.keys()].sort((a, b) => a - b).pop() + 1;
+            const content = isCustom
+                ? children
+                : Spicetify.React.createElement(
+                    Spicetify.ReactComponent.PanelSkeleton,
+                    {
+                        label,
+                        // Backwards compatibility, no longer needed in Spotify 1.2.12
+                        className: "Root__right-sidebar",
+                        style,
+                    },
+                    Spicetify.React.createElement(
+                        Spicetify.ReactComponent.PanelContent,
+                        {
+                            className: wrapperClassname,
+                        },
+                        Spicetify.React.createElement(Spicetify.ReactComponent.PanelHeader, {
+                            title: label,
+                            panel: id,
+                            link: headerLink,
+                            actions: headerActions,
+                            onClose: headerOnClose,
+                            onBack: headerOnBack,
+                            preventDefaultClose: headerPreventDefaultClose,
+                            className: headerClassname,
+                            titleVariant: headerVariant,
+                            titleSemanticColor: headerSemanticColor,
+                        }),
+                        Spicetify.React.cloneElement(children, { panel: id })
+                    )
+                )
+
+            contentMap.set(id, Spicetify.React.createElement(ErrorBoundary, { id }, content));
+
+            let isActive = Spicetify.Panel.currentPanel === id;
+
+            return {
+                id,
+                toggle: async () => {
+                    const { currentPanel } = Spicetify.Panel;
+                    currentPanelId = currentPanel === id ? 0 : id;
+                    await Spicetify.Panel.setPanel(currentPanel === id ? 0 : id);
+                },
+                onStateChange: (callback) => {
+                    Spicetify.Panel.subPanelState((panel) => {
+                        const activeState = panel === id;
+                        if (activeState !== isActive) {
+                            isActive = activeState;
+                            callback(isActive);
+                        }
+                    });
+                },
+                get isActive() { return Spicetify.Panel.currentPanel === id; },
+            };
+        },
+    };
+
+    // Render is sometimes ran before the wrapper is initialized, so we need to refresh it
+    (async function renderOnDemand() {
+        const { currentPanel } = Spicetify.Panel;
+        if (typeof currentPanel !== "number") {
+            setTimeout(renderOnDemand, 300);
+            return;
+        }
+
+        const cachedPanelState = await Spicetify.Platform.PanelAPI.prefs.get({ key: "ui.right_panel_content" });
+        const cachedPanelId = parseInt(cachedPanelState.entries["ui.right_panel_content"].number);
+        if (!Spicetify.Panel.reservedPanelIds[cachedPanelId] && currentPanel !== cachedPanelId) {
+            currentPanelId = 0;
+            await Spicetify.Panel.setPanel(0);
+
+            currentPanelId = cachedPanelId;
+            Spicetify.Panel.setPanel(cachedPanelId);
+        }
+    })();
 })();
 
 (function waitForHistoryAPI() {
@@ -1453,6 +1866,137 @@ Spicetify.Playbar = (function() {
         observer.observe(main, { childList: true });
     });
 }());
+
+(async function checkForUpdate() {
+    if (!Spicetify.Config) {
+        setTimeout(checkForUpdate, 300);
+        return;
+    }
+    const { version } = Spicetify.Config;
+    // Skip checking if version is Dev or version is not set
+    if (!version || version === "Dev") {
+        return;
+    }
+    // Fetch latest version from GitHub
+    try {
+        const res = await fetch("https://api.github.com/repos/spicetify/spicetify-cli/releases/latest");
+        const { tag_name, html_url, body } = await res.json();
+        const semver = tag_name.slice(1);
+        const changelogRawData = body.match(/## What's Changed([\s\S]*?)\r\n\r/)[1]
+        const changelog = [...changelogRawData.matchAll(/\r\n\*\s(.+?)\sin\shttps/g)]
+        .map(match => {
+            const featureData = match[1].split("@");
+            const feature = featureData[0];
+            const committerID = featureData[1];
+            return `<li>${feature}<a href="https://github.com/${committerID}">${committerID}</a></li>`;
+        })
+        .join("\n")
+
+        if (semver !== version) {
+            const content = document.createElement("div");
+            content.id = "spicetify-update";
+            content.innerHTML = `
+                <style>
+                    #spicetify-update a {
+                        text-decoration: underline;
+                    }
+                    #spicetify-update pre {
+                        cursor: pointer;
+                        font-size: 1rem;
+                        padding: 0.5rem;
+                        background-color: var(--spice-highlight-elevated);
+                        border-radius: 0.25rem;
+                    }
+                    #spicetify-update hr {
+                        border-color: var(--spice-subtext);
+                        margin-top: 1rem;
+                        margin-bottom: 1rem;
+                    }
+                    #spicetify-update ul,
+                    #spicetify-update ol {
+                        padding-left: 1.5rem;
+                    }
+                    #spicetify-update li {
+                        margin-top: 0.5rem;
+                        margin-bottom: 0.5rem;
+                        list-style-type: disc;
+                    }
+                    #spicetify-update ol > li {
+                        list-style-type: decimal;
+                    }
+                    .spicetify-update-space {
+                        margin-bottom: 25px;
+                    }
+                    .spicetify-update-little-space {
+                        margin-bottom: 8px;
+                    }
+                </style>
+                <p class="spicetify-update-space">Update Spicetify to receive new features and bug fixes.</p>
+                <p> Current version: ${version} </p>
+                <p> Latest version:
+                    <a href="${html_url}" target="_blank" rel="noopener noreferrer">
+                        ${semver}
+                    </a>
+                </p>
+                <hr>
+                <h3>What's Changed</h3>
+                <details>
+                    <summary>
+                        See changelog
+                    </summary>
+                    <ul>
+                        ${changelog}
+                    </ul>
+                </details>
+                <hr>
+                <h3>Guide</h3>
+                <p>Run these commands in the terminal:</p>
+                <ol>
+                    <li>Update Spicetify CLI</li>
+                    <pre class="spicetify-update-little-space">spicetify upgrade</pre>
+                    <p class="spicetify-update-space">If you installed Spicetify via a package manager, update using said package manager.</p>
+                    <li>Apply changes to Spotify</li>
+                    <pre>spicetify restore backup apply</pre>
+                </ol>
+            `;
+
+            (function waitForTippy() {
+                if (!Spicetify.Tippy) {
+                    setTimeout(waitForTippy, 300);
+                    return;
+                }
+
+                const tippy = Spicetify.Tippy(content.querySelectorAll("pre"), {
+                    content: "Click to copy",
+                    hideOnClick: false,
+                    ...Spicetify.TippyProps,
+                });
+
+                tippy.forEach((instance) => {
+                    instance.reference.addEventListener("click", () => {
+                        Spicetify.Platform.ClipboardAPI.copy(instance.reference.textContent);
+                        instance.setContent("Copied!");
+                        setTimeout(() => instance.setContent("Click to copy"), 1000);
+                    });
+                });
+            })();
+
+            const updateModal = {
+                title: "Update Spicetify",
+                content,
+                isLarge: true,
+            };
+
+            new Spicetify.Topbar.Button(
+                "Update Spicetify",
+                `<svg xmlns="http://www.w3.org/2000/svg" version="1.0" width="22px" height="22px" viewBox="0 0 320.000000 400.000000"><g transform="translate(0.000000,400.000000) scale(0.100000,-0.100000)" fill="currentColor"><path d="M2213 3833 c3 -10 18 -52 34 -93 25 -67 28 -88 28 -200 0 -113 -3 -131 -27 -188 -87 -207 -222 -340 -613 -602 -206 -139 -308 -223 -442 -364 -117 -124 -133 -129 -146 -51 -28 173 -52 229 -130 307 -69 69 -133 101 -214 106 -80 5 -113 -3 -113 -28 0 -13 14 -25 43 -38 63 -28 113 -76 144 -140 25 -51 28 -68 28 -152 -1 -141 -27 -221 -193 -600 -133 -305 -164 -459 -138 -685 20 -168 46 -268 101 -382 127 -262 351 -451 642 -540 81 -24 102 -27 268 -27 159 -1 190 2 265 22 172 47 315 129 447 255 164 157 251 322 304 572 26 124 31 308 15 585 -7 130 -6 168 8 240 42 211 148 335 316 371 38 8 50 15 50 29 0 23 -27 30 -120 30 -101 0 -183 -22 -250 -68 -52 -36 -71 -58 -163 -203 -46 -73 -90 -96 -141 -75 -41 17 -51 43 -44 118 4 39 29 97 106 248 198 388 264 606 264 880 0 200 -37 347 -123 492 -53 91 -156 198 -188 198 -18 0 -22 -4 -18 -17z m-591 -2208 c277 -37 576 -148 608 -226 25 -59 -20 -129 -82 -129 -15 0 -61 16 -101 36 -133 67 -288 111 -480 135 -131 16 -447 7 -542 -16 -38 -10 -95 -19 -125 -22 -46 -4 -59 -1 -77 16 -41 38 -42 102 -4 140 33 33 270 78 441 84 109 4 249 -4 362 -18z m-40 -354 c142 -25 276 -68 397 -129 76 -38 97 -53 107 -79 23 -53 -8 -103 -63 -103 -19 0 -67 17 -111 39 -92 46 -203 84 -315 108 -128 28 -450 25 -573 -5 -68 -17 -97 -20 -117 -13 -47 18 -62 80 -29 120 55 69 457 104 704 62z m-48 -326 c183 -28 418 -126 432 -181 7 -29 -16 -69 -45 -77 -12 -3 -62 15 -123 43 -175 82 -240 95 -468 95 -149 0 -214 -4 -274 -18 -43 -9 -87 -17 -97 -17 -27 0 -59 35 -59 64 0 50 47 67 280 100 67 9 266 4 354 -9z"/></g></svg>`,
+                () => Spicetify.PopupModal.display(updateModal),
+            );
+        }
+    } catch (err) {
+        console.error(err);
+    }
+})();
 
 // Put `Spicetify` object to `window` object so apps iframe could access to it via `window.top.Spicetify`
 window.Spicetify = Spicetify;

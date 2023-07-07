@@ -136,6 +136,7 @@ const ConfigSelection = ({ name, defaultValue, options, onChange = () => {} }) =
 			react.createElement(
 				"select",
 				{
+					className: "main-dropDown-dropDown",
 					value,
 					onChange: setValueCallback
 				},
@@ -432,6 +433,21 @@ function openConfig() {
 		react.createElement(OptionList, {
 			items: [
 				{
+					desc: "Playbar button",
+					key: "playbar-button",
+					info: "Replace Spotify's lyrics button with Lyrics Plus.",
+					type: ConfigSlider
+				},
+				{
+					desc: "Global delay",
+					info: "Offset (in ms) across all tracks.",
+					key: "global-delay",
+					type: ConfigAdjust,
+					min: -10000,
+					max: 10000,
+					step: 250
+				},
+				{
 					desc: "Font size",
 					info: "(or Ctrl + Mouse scroll in main app)",
 					key: "font-size",
@@ -507,8 +523,8 @@ function openConfig() {
 					when: () => !CONFIG.visual["colorful"]
 				},
 				{
-					desc: "Text convertion: Chinese-Japanese Detection threshold (Advanced)",
-					info: "Checks if whenever Hanzi/Kanji or Kana is dominant in lyrics. If the result passes the threshold, it's most likely Japanese, and vice versa. This setting is in percentage.",
+					desc: "Text convertion: Japanese Detection threshold (Advanced)",
+					info: "Checks if whenever Kana is dominant in lyrics. If the result passes the threshold, it's most likely Japanese, and vice versa. This setting is in percentage.",
 					key: "ja-detect-threshold",
 					type: ConfigAdjust,
 					min: thresholdSizeLimit.min,
@@ -527,9 +543,17 @@ function openConfig() {
 			],
 			onChange: (name, value) => {
 				CONFIG.visual[name] = value;
-				console.log(CONFIG.visual, APP_NAME, name, value);
 				localStorage.setItem(`${APP_NAME}:visual:${name}`, value);
 				lyricContainerUpdate && lyricContainerUpdate();
+
+				const configChange = new CustomEvent("lyrics-plus", {
+					detail: {
+						type: "config",
+						name: name,
+						value: value
+					}
+				});
+				window.dispatchEvent(configChange);
 			}
 		}),
 		react.createElement("h2", null, "Providers"),
